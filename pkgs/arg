@@ -1,0 +1,235 @@
+#IMPORT table
+#IMPORT log
+
+_ARGS_KEY=()
+_ARGS_DFT=()
+_ARGS_REQ=()
+_ARGS_VAL=()
+_ARGS_HAS=()
+_ARGS_DVAL=()
+_ARGS_TYPE=()
+_ARGS_DESC=()
+_ARGS_COUNT=0
+_ARGS_EXTRA=()
+_ARGS_EXTRA_HAS="N"
+_ARGS_EXTRA_REQ="N"
+_ARGS_EXTRA_DESC=
+
+function RegistryArg() {
+	local ARG="$1"
+	local DFT="$2"
+	local DECO="$3"
+	local DESC="$4"
+	local KEY="${ARG%%=*}"
+	local DVAL="${ARG#*=}"
+	_ARGS_COUNT=$((_ARGS_COUNT+1))
+	_ARGS_KEY[$_ARGS_COUNT]="$KEY"
+	_ARGS_REQ[$_ARGS_COUNT]="N"
+	_ARGS_TYPE[$_ARGS_COUNT]="String"
+	if [ "$DECO" != "" ]; then
+		if echo "$DECO" | grep '@' > /dev/null 2>&1; then
+			_ARGS_REQ[$_ARGS_COUNT]="Y"
+		fi
+		if echo "$DECO" | grep 'A' > /dev/null 2>&1; then
+			_ARGS_TYPE[$_ARGS_COUNT]="Array"
+		elif echo "$DECO" | grep 'B' > /dev/null 2>&1; then
+			_ARGS_TYPE[$_ARGS_COUNT]="Bool"
+		fi
+	fi
+	_ARGS_DFT[$_ARGS_COUNT]="$DFT"
+	_ARGS_VAL[$_ARGS_COUNT]="$DFT"
+	_ARGS_HAS[$_ARGS_COUNT]="N"
+	_ARGS_DVAL[$_ARGS_COUNT]="$DVAL"
+	_ARGS_DESC[$_ARGS_COUNT]="$DESC"
+}
+
+function RegistryArgExtra() {
+	_ARGS_EXTRA_DESC="$1"
+	_ARGS_EXTRA_REQ="Y"
+}
+
+function LoadArgs() {
+	while [ $# -gt 0 ]; do
+		local ARG=$1
+		shift
+		if [ "$ARG" == "--" ]; then
+			_ARGS_EXTRA=("$@")
+			[ $# -gt 0 ] && _ARGS_EXTRA_HAS="Y"
+			break
+		fi
+		VAL=${ARG#*=}
+		KEY=${ARG%%=*}
+		Debug "KEY=$KEY"
+		Debug "VAL=$VAL"
+		[ "$KEY" == "--help" ] && CommandUsage
+		local FOUND="N"
+		for i in `seq $_ARGS_COUNT`; do
+			if [ "${_ARGS_KEY[$i]}" == "$KEY" ]; then
+				if [ "${_ARGS_TYPE[$i]}+${_ARGS_HAS[$i]}" == "Array+Y" ]; then
+					_ARGS_VAL[$i]="${_ARGS_VAL[$i]},$VAL"
+				elif [ "${_ARGS_TYPE[$i]}+$VAL" == "Bool+y" ]; then
+					_ARGS_VAL[$i]="Y"
+				elif [ "${_ARGS_TYPE[$i]}+$VAL" == "Bool+n" ]; then
+					_ARGS_VAL[$i]="N"
+				else
+					_ARGS_VAL[$i]="$VAL"
+				fi
+				_ARGS_HAS[$i]="Y"
+				FOUND="Y"
+				break
+			fi
+		done
+		[ "$FOUND" == "Y" ] || CommandUsage "不认识的参数: $ARG"
+	done
+	[ "$_ARGS_EXTRA_REQ+$_ARGS_EXTRA_HAS" == "Y+N" ] && CommandUsage "缺少 $_ARGS_EXTRA_DESC"
+	local MISS=
+	for i in `seq $_ARGS_COUNT`; do
+		if [ "${_ARGS_REQ[$i]}+${_ARGS_HAS[$i]}" == "Y+N" ]; then
+			MISS="$MISS ${_ARGS_KEY[$i]}"
+		fi
+	done
+	[ "$MISS" == "" ] || CommandUsage "缺少参数:$MISS"
+	local INVALID=
+	for i in `seq $_ARGS_COUNT`; do
+		if [ "${_ARGS_TYPE[$i]}" == "Bool" -a "${_ARGS_VAL[$i]}" != "Y" -a "${_ARGS_VAL[$i]}" != "N" ]; then
+			INVALID="$INVALID ${_ARGS_KEY[$i]}"
+		fi
+	done
+	[ "$INVALID" == "" ] || CommandUsage "参数的值不符合规范:$INVALID"
+}
+
+function HasArg() {
+	local KEY=$1
+	for i in `seq $_ARGS_COUNT`; do
+		if [ "${_ARGS_KEY[$i]}" == "$KEY" ]; then
+			[ "${_ARGS_HAS[$i]}" == "Y" ] && return 0
+			return 1
+		fi
+	done
+	return 1
+}
+
+function GetArg() {
+	local KEY=$1
+	for i in `seq $_ARGS_COUNT`; do
+		if [ "${_ARGS_KEY[$i]}" == "$KEY" ]; then
+			echo "${_ARGS_VAL[$i]}"
+			return 0
+		fi
+	done
+	return 1
+}
+
+function PrintArgs() {
+	PrintTable "Y" "Y" 5 $_ARGS_COUNT \
+		"-ARG" "-REQ" "-TYPE" "-HAS" "VAL" \
+		"${_ARGS_KEY[@]}" "${_ARGS_REQ[@]}" "${_ARGS_TYPE[@]}" "${_ARGS_HAS[@]}" "${_ARGS_VAL[@]}"
+}
+
+################################################################################
+
+_GENERAL=
+_SELF_NAME=$(basename $0)
+
+function RegistryGeneral() {
+	_GENERAL=$1
+}
+
+################################################################################
+
+_CMD_KEY=()
+_CMD_MAIN=()
+_CMD_DESC=()
+_CMD_COUNT=0
+_CMD_CUR=
+
+function RegistryCommand() {
+	local KEY=$1
+	local MAIN=$2
+	local DESC=$3
+	_CMD_COUNT=$((_CMD_COUNT+1))
+	_CMD_KEY[$_CMD_COUNT]="$KEY"
+	_CMD_MAIN[$_CMD_COUNT]="$MAIN"
+	_CMD_DESC[$_CMD_COUNT]="$DESC"
+}
+
+function PrintGeneral() {
+	if [ "$_GENERAL" != "" ]; then
+		echo "GENERAL:"
+		echo "  $_SELF_NAME $_GENERAL"
+		echo
+	fi
+}
+
+function Main() {
+	for i in `seq $_CMD_COUNT`; do
+		local INDEX=1
+		local OK=Y
+		for SEC in ${_CMD_KEY[$i]}; do
+			if [ "$(eval echo \$$INDEX)" != "$SEC" ]; then
+				OK=N
+				break
+			fi
+			INDEX=$((INDEX+1))
+		done
+		if [ "$OK" == "Y" ]; then
+			for SEC in ${_CMD_KEY[$i]}; do
+				shift
+			done
+			${_CMD_MAIN[$i]} "$@"
+			exit $?
+		fi
+	done
+	GeneralUsage
+}
+
+function GeneralUsage() {
+	PrintGeneral
+	echo "USAGE: "
+	echo "  $_SELF_NAME COMMAND [OPTIONS] -- [CMD...]"
+	echo
+	echo "COMMAND:"
+	local WIDTH=0
+	for KEY in "${_CMD_KEY[@]}"; do
+		[ "${#KEY}" -gt "$WIDTH" ] && WIDTH=${#KEY}
+	done
+	for i in `seq $_CMD_COUNT`; do
+		printf "  %-${WIDTH}s  %s\n" "${_CMD_KEY[$i]}" "${_CMD_DESC[$i]}"
+	done
+	exit 1
+}
+
+function CommandUsage() {
+	PrintGeneral
+	echo "USAGE: "
+	printf "  $_SELF_NAME $_CMD_CUR [OPTIONS]"
+	[ "$_ARGS_EXTRA_REQ" == "Y" ] && echo " -- [$_ARGS_EXTRA_DESC]"
+	[ "$_ARGS_EXTRA_REQ" != "Y" ] && echo
+	echo
+	local WIDTH=0
+	for i in `seq $_ARGS_COUNT`; do
+		local ARG_SAMPLE="${_ARGS_KEY[$i]}=${_ARGS_DVAL[$i]}"
+		[ "${#ARG_SAMPLE}" -gt "$WIDTH" ] && WIDTH=${#ARG_SAMPLE}
+	done
+	echo "OPTIONS:"
+	printf "  %-${WIDTH}s  %s\n" "--help" "打印帮助"
+	for i in `seq $_ARGS_COUNT`; do
+		local DFT_DESC=
+		if [ "${_ARGS_REQ[$i]}" == "Y" ]; then
+			DFT_DESC=', 必填参数'
+		elif [ "${_ARGS_DFT[$i]}" != "" ]; then
+			DFT_DESC=", 默认值为 '${_ARGS_DFT[$i]}'"
+		fi
+		if [ "${_ARGS_TYPE[$i]}" == "Array" ]; then
+			DFT_DESC="$DFT_DESC, 此参数可以写多次"
+		elif [ "${_ARGS_TYPE[$i]}" == "Bool" ]; then
+			DFT_DESC="$DFT_DESC, 值必须为 'Y' 或 'N'"
+		fi
+		printf "  %-${WIDTH}s  %s\n" "${_ARGS_KEY[$i]}=${_ARGS_DVAL[$i]}" "${_ARGS_DESC[$i]}$DFT_DESC"
+	done
+	if [ "$1" != "" ]; then
+		echo
+		echo "$1"
+	fi
+	exit 1
+}

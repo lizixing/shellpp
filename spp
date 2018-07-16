@@ -1,0 +1,97 @@
+#!/bin/sh
+
+SELF=$0
+while [ -L "$SELF" ]; do
+	SELF="$(readlink "$SELF")"
+done
+ROOT=$(cd `dirname "$SELF"`; pwd)
+
+. $ROOT/pkgs/arg
+. $ROOT/pkgs/log
+. $ROOT/pkgs/table
+
+RegistryArg "--src=<SOURCE FILE>"           ""  "@" "源文件"
+RegistryArg "--out=<OUTPUT FILE>"           ""  "@" "输出文件"
+RegistryArg "--include=<INCLUDE DIR>"       ""  "A" "引用的包的目录"
+RegistryArg "--clean-middle=<CLEAN MIDDLE>" "Y" "B" "编译结束后是否清除中间结果"
+RegistryArg "--max-steps=<MAX STEPS>"       "0" ""  "最大展开次数，0 表示无限"
+
+LoadArgs "$@"
+
+[ "$DEBUG" == "Y" ] && PrintArgs
+
+SRC=$(GetArg --src)
+OUT=$(GetArg --out)
+
+CLEAN_MIDDLE=$(GetArg --clean-middle)
+MAX_STEPS=$(GetArg --max-steps)
+
+_INCS="$(GetArg --include)"
+INCS="$(cd `dirname $SRC`; pwd)"
+for INC in ${_INCS//,/ }; do
+	INCS="$INCS $(cd $INC; pwd)"
+done
+INCS="$INCS $ROOT/pkgs"
+
+Info "SRC: $SRC"
+Info "OUT: $OUT"
+Info "INCS: $INCS"
+Info "CLEAN_MIDDLE: $CLEAN_MIDDLE"
+Info "MAX_STEPS: $MAX_STEPS"
+
+IMPORTED=
+
+function FindPkg() {
+	local PKG=$1
+	for INC in $INCS; do
+		if [ -f $INC/$PKG ]; then
+			if echo "$IMPORTED" | grep "@$INC/$PKG@" > /dev/null 2>&1 ; then
+				echo "!!!IMPORTED!!!"
+			else
+				echo "$INC/$PKG"
+			fi
+			return
+		fi
+	done
+	echo "!!!NOTFOUND!!!"
+}
+
+STEP=0
+rm -f $OUT $OUT.*
+cp $SRC $OUT.$STEP
+while true; do
+	NEXT=$((STEP+1))
+	LINE=$(grep -n '^#IMPORT ' $OUT.$STEP | head -n 1)
+	if [ "$LINE" == "" ]; then
+		break
+	fi
+	LNO=$(echo $LINE | awk -F: '{print $1}')
+	PKG=$(echo $LINE | awk '{print $2}')
+	PKGPATH=$(FindPkg $PKG)
+	if [ "$PKGPATH" == "!!!NOTFOUND!!!" ]; then
+		Fatal "package '$PKG' not found"
+	fi
+	Info "STEP[$NEXT] import package '$PKG' @ '$PKGPATH'"
+	head -n $((LNO-1)) $OUT.$STEP > $OUT.$NEXT
+	if [ "$PKGPATH" != "!!!IMPORTED!!!" ]; then
+		echo "### PKG $PKG@$PKGPATH start" >> $OUT.$NEXT
+		cat $PKGPATH >> $OUT.$NEXT
+		echo >> $OUT.$NEXT
+		echo "### PKG $PKG@$PKGPATH end" >> $OUT.$NEXT
+		IMPORTED="$IMPORTED @$PKGPATH@"
+		Debug "IMPORTED: $IMPORTED"
+	fi
+	tail -n+$((LNO+1)) $OUT.$STEP >> $OUT.$NEXT
+	STEP=$NEXT
+	if [ "$MAX_STEPS" -gt 0 -a "$STEP" -ge "$MAX_STEPS" ]; then
+		break
+	fi
+done
+
+cp $OUT.$STEP $OUT
+chmod +x $OUT
+Info "output '$OUT' finished!"
+
+if [ "$CLEAN_MIDDLE" == "Y" ]; then
+	rm -rf $OUT.*
+fi

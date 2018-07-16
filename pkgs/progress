@@ -1,0 +1,75 @@
+#IMPORT log
+
+_PROGRESS_LEVEL_=0
+_GROUP_STACK_=()
+_INDENT_CNT_="  "
+_PROGRESS_CUR=
+
+### 本模块有精简和详细两路日志
+### PROGRESS_LOG_MOD 可以控制日志打印模式：both detail-only reduced-only
+
+if [ "$PROGRESS_LOG_MOD" == "" ]; then
+	PROGRESS_LOG_MOD="both"
+fi
+
+function _ProgressLog() {
+	[ "$PROGRESS_LOG_MOD" != "reduced-only" ] || return 0
+	Log "L$_PROGRESS_LEVEL_|$*"
+}
+
+function _Indent() {
+	[ "$PROGRESS_LOG_MOD" != "detail-only" ] || return 0
+	if [ "$_PROGRESS_LEVEL_" -gt 0 ]; then
+		for i in `seq $_PROGRESS_LEVEL_`; do
+			printf "$_INDENT_CNT_" 1>&2
+		done
+	fi
+	printf "$* ... " 1>&2
+}
+
+function _IndentClose() {
+	[ "$PROGRESS_LOG_MOD" != "detail-only" ] || return 0
+	echo "【$1】" 1>&2
+}
+
+function Progress() {
+	_ProgressLog "PRO-START|$*"
+	_Indent "$*"
+	_PROGRESS_CUR="$*"
+}
+
+function Done() {
+	local RES=$1
+	if [ "$RES" == "" ]; then
+		RES="成功"
+	fi
+	_ProgressLog "PRO-DONE|$_PROGRESS_CUR|$RES"
+	_IndentClose "$RES"
+}
+
+function ProgressGroup() {
+	_ProgressLog "PROGROUP-START|$*"
+	_Indent "$*"
+	_IndentClose "开始"
+	_GROUP_STACK_[$_PROGRESS_LEVEL_]="$*"
+	_PROGRESS_LEVEL_=$((_PROGRESS_LEVEL_+1))
+}
+
+function DoneGroup() {
+	local RES=$1
+	if [ "$RES" == "" ]; then
+		RES="成功"
+	fi
+	_PROGRESS_LEVEL_=$((_PROGRESS_LEVEL_-1))
+	local MSG="${_GROUP_STACK_[$_PROGRESS_LEVEL_]}"
+	_ProgressLog "PROGROUP-DONE|$MSG|$RES"
+	_Indent "$MSG"
+	_IndentClose "$RES"
+}
+
+function Step() {
+	if ! "$@"; then
+		Done "失败"
+		exit 1
+	fi
+}

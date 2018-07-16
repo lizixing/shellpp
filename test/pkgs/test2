@@ -1,0 +1,5 @@
+#IMPORT test
+
+function bar() {
+	foo "bar $1"
+}

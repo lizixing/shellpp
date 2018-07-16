@@ -1,0 +1,22 @@
+
+function Log() {
+	echo "$(date "+%F %T.%N")|$@"
+}
+
+function Debug() {
+	[ "$DEBUG" == "Y" ] || return 0
+	Log "D|$@"
+}
+
+function Info() {
+	Log "I|$@"
+}
+
+function Warn() {
+	Log "W|$@"
+}
+
+function Fatal() {
+	Log "F|$@"
+	exit 1
+}

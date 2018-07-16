@@ -1,0 +1,27 @@
+
+function GoArch() {
+	local OS_ARCH=$1
+	if [ "$OS_ARCH" == "" ]; then
+		OS_ARCH=$(uname -m)
+	fi
+	case "$OS_ARCH" in
+		i686)
+			echo "386"
+			;;
+		mips64el)
+			echo "mips64le"
+			;;
+		mips64)
+			echo "mips64le"
+			;;
+		x86_64)
+			echo "amd64"
+			;;
+		aarch64)
+			echo "arm64"
+			;;
+		*)
+			echo "unknown"
+			;;
+	esac
+}

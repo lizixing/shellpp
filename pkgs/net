@@ -1,0 +1,20 @@
+
+### AutoDetectIp netDev
+function AutoDetectIp() {
+	ip addr show dev $1 | grep ' inet ' | awk '{print $2}' | awk -F/ '{print $1}' | head -n 1
+}
+
+### AutoDetectNetDev [ip]
+function AutoDetectNetDev() {
+	local IP=$1
+	if [ "$IP" == "" ]; then
+		ip a | grep -v '^ ' | grep -v DOWN | awk '{print $2}' | awk -F: '{print $1}' | grep -v '^lo$' | head -n 1
+	else
+		for NET_DEV in `ip a | grep -v '^ ' | awk '{print $2}' | awk -F: '{print $1}'`; do
+			if ip addr show dev $NET_DEV | grep "inet $IP/" > /dev/null 2>&1; then
+				echo $NET_DEV
+				return
+			fi
+		done
+	fi
+}

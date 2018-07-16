@@ -1,0 +1,90 @@
+#!/bin/sh
+
+COMPRESS="tar -cf"
+EXTRACT="tar -xf"
+if [ "$1" == "--compress-gz" ]; then
+	COMPRESS="tar -zcf"
+	EXTRACT="tar -zxf"
+	shift
+fi
+
+PKG=$1
+SETUP=$2
+if [ "$SETUP" == "" -o "$PKG" == "" ]; then
+	echo "usage: $0 [--compress-gz] <Package> <Setup Script> [<Resource> ...]"
+	exit 1
+fi
+if [ ! -f $SETUP ]; then
+	echo "miss setup script '$SETUP'"
+	exit 1
+fi
+shift
+shift
+SRC="$@"
+
+set -e
+set -x
+
+TEMP=.temp.$(date +%Y%m%d%H%M%S)
+rm -rf $PKG $TEMP $TEMP.tar.gz
+mkdir $TEMP
+cp -r $SETUP $SRC $TEMP/
+$COMPRESS $TEMP.tar.gz $TEMP
+
+cat > $PKG << EOF
+#!/bin/sh
+set -e
+function Fatal() {
+	echo "\$@"
+	exit 1
+}
+function Usage() {
+	echo "usage: \$0 [options] [-- setup_args...]"
+	echo "options:"
+	echo "  --not-clean"
+	echo "  --not-run"
+	echo "  --workdir=<workdir>"
+	echo
+	echo "\$1"
+	exit 1
+}
+RUN=Y
+CLEAN=Y
+WKDIR=\$(dirname \$0)
+while [ \$# -gt 0 ]; do
+	ARG="\$1"
+	shift
+	VAL=\${ARG#*=}
+	KEY=\${ARG%%=*}
+	case "\$KEY" in
+		--)
+			break
+			;;
+		--not-clean)
+			CLEAN=N
+			;;
+		--not-run)
+			RUN=N
+			;;
+		--workdir)
+			WKDIR=\$VAL
+			;;
+		--help)
+			Usage
+			;;
+		*)
+			Usage "unknown option \$KEY"
+			;;
+	esac
+done
+tail -n+\$(awk '/^__ARCHIVE_BELOW__\$/ {print NR + 1; exit 0; }' "\$0") "\$0" > "\$WKDIR/$TEMP.tar.gz" || Fatal "save package '\$WKDIR/$TEMP.tar.gz' failed"
+cd "\$WKDIR" && rm -rf $TEMP && $EXTRACT $TEMP.tar.gz || Fatal "extract package '$TEMP.tar.gz' failed"
+[ "\$RUN" == "Y" ] && ($TEMP/$(basename $SETUP) "\$@" || Fatal "run '$TEMP/$(basename $SETUP) \$@' failed!")
+[ "\$CLEAN" == "Y" ] && (rm -rf $TEMP.tar.gz $TEMP || Fatal "clean failed")
+exit 0
+__ARCHIVE_BELOW__
+EOF
+cat $TEMP.tar.gz >> $PKG && rm -rf $TEMP $TEMP.tar.gz
+chmod +x $PKG
+
+echo "Build: $SETUP $SRC => $PKG"

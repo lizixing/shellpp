@@ -1,0 +1,135 @@
+#IMPORT log
+
+function _Range() {
+	local COUNT=$1
+	local START=$2
+	[ "$START" == "" ] && START=0
+	[ "$COUNT" -gt 0 ] && seq $START $((START+COUNT-1))
+}
+
+### PrintRow Border ColCount Left[] Width[] Items[]
+function PrintRow() {
+	local BORDER=$1
+	local COLC=$2
+	shift
+	shift
+	local LEFT=()
+	for COL in `_Range $COLC`; do
+		LEFT[$COL]="$1"
+		shift
+	done
+	local WIDTH=()
+	for COL in `_Range $COLC`; do
+		WIDTH[$COL]="$1"
+		shift
+	done
+	local ITEMS=("$@")
+	[ "$BORDER" != " " ] && printf "$BORDER"
+	for COL in `_Range $COLC`; do
+		[ "$COL" != "0" ] && printf "$BORDER"
+		printf "%${LEFT[$COL]}${WIDTH[$COL]}s" "${ITEMS[$COL]}"
+	done
+	[ "$BORDER" != " " ] && printf "$BORDER"
+	printf "\n"
+}
+
+### PrintTable WithHeader WithBorder ColCount RowCount Titles[] Col1[] Col2[] ...
+function PrintTable() {
+	Debug "PrintTable ENTER"
+	local WITH_HEADER=$1
+	local WITH_BORDER=$2
+	local COLC=$3
+	local ROWC=$4
+	shift
+	shift
+	shift
+	shift
+	# 获取表头与各列对齐规则
+	local TITLE=()
+	local LEFT=()
+	for COL in `_Range $COLC`; do
+		local COL_TEXT="$1"
+		shift
+		if [ "${COL_TEXT:0:1}" == "-" ]; then # 靠右对齐
+			TITLE[$COL]="${COL_TEXT:1}"
+			LEFT[$COL]=""
+		else  # 靠左对齐
+			TITLE[$COL]="$COL_TEXT"
+			LEFT[$COL]="-"
+		fi
+	done
+	local DATA=("$@")
+	Debug "PrintTable TITLE LEFT DATA OK"
+	# 计算列宽
+	local WIDTH=()
+	local _COL_START=0
+	for COL in `_Range $COLC`; do
+		WIDTH[$COL]=${#TITLE[$COL]}
+		for ROW in `_Range $ROWC`; do
+			local IW="${#DATA[$((_COL_START+ROW))]}"
+			if [ "$IW" -gt "${WIDTH[$COL]}" ]; then
+				WIDTH[$COL]=$IW
+			fi
+		done
+		_COL_START=$((_COL_START+ROWC))
+	done
+	Debug "PrintTable WIDTH OK"
+	# 准备分隔线
+	local HR=()
+	if [ "$WITH_BORDER" == "Y" ]; then
+		for COL in `_Range $COLC`; do
+			local ITEM=
+			for I in `_Range ${WIDTH[$COL]}`; do
+				ITEM="-$ITEM"
+			done
+			HR[$COL]="$ITEM"
+		done
+	fi
+	local WEDGE="$([ "$WITH_BORDER" == "Y" ] && echo "|" || echo " ")"
+	Debug "PrintTable HR OK"
+	# 打印表头
+	if [ "$WITH_HEADER" == "Y" ]; then
+		[ "$WITH_BORDER" == "Y" ] && PrintRow "+" $COLC "${LEFT[@]}" "${WIDTH[@]}" "${HR[@]}"
+		PrintRow "$WEDGE" $COLC "${LEFT[@]}" "${WIDTH[@]}" "${TITLE[@]}"
+	fi
+	Debug "PrintTable Header PRINTED"
+	# 打印表内容
+	if [ "$ROWC" -gt 0 ]; then
+		[ "$WITH_BORDER" == "Y" ] && PrintRow "+" $COLC "${LEFT[@]}" "${WIDTH[@]}" "${HR[@]}"
+		for ROW in `_Range $ROWC`; do
+			local ITEMS=()
+			local _INDEX=$ROW
+			for COL in `_Range $COLC`; do
+				ITEMS[$COL]="${DATA[$_INDEX]}"
+				_INDEX=$((_INDEX+ROWC))
+			done
+			PrintRow "$WEDGE" $COLC "${LEFT[@]}" "${WIDTH[@]}" "${ITEMS[@]}"
+		done
+	fi
+	# 打印底框
+	if [ "$ROWC" -gt 0 -o "$WITH_HEADER" == "Y" ]; then
+		[ "$WITH_BORDER" == "Y" ] && PrintRow "+" $COLC "${LEFT[@]}" "${WIDTH[@]}" "${HR[@]}"
+	fi
+	Debug "PrintTable Body PRINTED"
+	return 0
+}
+
+### PrintTable ColCount RowCount Col1[] Col2[] ...
+function PrintSimpleTable() {
+	Debug "PrintSimpleTable ENTER"
+	local COLC=$1
+	local ROWC=$2
+	shift
+	shift
+	local DATA=("$@")
+	for ROW in `_Range $ROWC`; do
+		local _INDEX=$ROW
+		for COL in `_Range $COLC`; do
+			printf "%s " "${DATA[$_INDEX]}"
+			_INDEX=$((_INDEX+ROWC))
+		done
+		printf "\n"
+	done
+	Debug "PrintSimpleTable DONE"
+	return 0
+}

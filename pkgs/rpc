@@ -1,0 +1,157 @@
+
+if [ "$SSH_CONNECT_TIMEOUT" == "" ]; then
+	SSH_CONNECT_TIMEOUT=3
+fi
+
+_SSH_OPT="-o ConnectTimeout=$SSH_CONNECT_TIMEOUT -o StrictHostKeyChecking=no"
+
+################################################################################
+
+_NODES=()
+_NODES_PWD=()
+_NODES_COUNT=0
+
+function LoadNodes() {
+	_NODES_COUNT=0
+	for NODE in `cat $1 | awk '{print $1 ":" $2}'`; do
+		_NODES_COUNT=$((_NODES_COUNT+1))
+		_NODES[$_NODES_COUNT]=${NODE%%:*}
+		_NODES_PWD[$_NODES_COUNT]=${NODE#*:}
+	done
+}
+
+function EachNode() {
+	if [ "$_NODES_COUNT" -gt 0 ]; then
+		for INDEX in `seq $_NODES_COUNT`; do
+			"$@" "${_NODES[$INDEX]}" "${_NODES_PWD[$INDEX]}"
+		done
+	fi
+}
+
+################################################################################
+
+function _RunWithPasswd() {
+	local PASSWD=$1
+	shift
+	expect << EOF
+spawn $@
+expect {
+ " password:" {
+  send "$PASSWD\n"
+ }
+ eof {
+  catch wait result
+  exit [lindex \$result 3]
+ }
+}
+expect {
+ " password:" {
+  send_user "\nWrong Password!\n"
+  exit 1
+ }
+ eof {
+  catch wait result
+  exit [lindex \$result 3]
+ }
+}
+EOF
+}
+
+function RunWithPasswd() {
+	local NODE=$1
+	local PASSWD=$2
+	shift
+	shift
+	Info "[RUN@$NODE] $@"
+	if [ "$SSH_USER" != "" ]; then
+		_RunWithPasswd $PASSWD ssh $_SSH_OPT $SSH_USER@$NODE "$@" 2>&1
+	else
+		_RunWithPasswd $PASSWD ssh $_SSH_OPT $NODE "$@" 2>&1
+	fi
+}
+
+function CopyWithPasswd() {
+	local NODE=$1
+	local PASSWD=$2
+	local SRC=$3
+	local DST=$4
+	local OPT=
+	if [ -d $SRC ]; then
+		OPT="-r"
+	fi
+	if [ "$DST" == "" ]; then
+		DST="$SRC"
+	fi
+	Info "[SCP] $SRC => $NODE:$DST"
+	if [ "$SSH_USER" != "" ]; then
+		_RunWithPasswd $PASSWD scp $_SSH_OPT $OPT $SRC $SSH_USER@$NODE:$DST 2>&1
+	else
+		_RunWithPasswd $PASSWD scp $_SSH_OPT $OPT $SRC $NODE:$DST 2>&1
+	fi
+}
+
+################################################################################
+
+function Run() {
+	local NODE=$1
+	shift
+	if [ "$NODE" == "local" ]; then
+		Info "[RUN@local] $@"
+		"$@" 2>&1
+	else
+		Info "[RUN@$NODE] $@"
+		if [ "$SSH_USER" != "" ]; then
+			ssh $_SSH_OPT $SSH_USER@$NODE "$@" 2>&1
+		else
+			ssh $_SSH_OPT $NODE "$@" 2>&1
+		fi
+	fi
+}
+
+function RunLoc() {
+	Run "local" "$@"
+}
+
+function Get() {
+	local NODE=$1
+	shift
+	if [ "$NODE" == "local" ]; then
+		"$@" 2> /dev/null
+	else
+		if [ "$SSH_USER" != "" ]; then
+			ssh $_SSH_OPT $SSH_USER@$NODE "$@" 2> /dev/null
+		else
+			ssh $_SSH_OPT $NODE "$@" 2> /dev/null
+		fi
+	fi
+}
+
+################################################################################
+
+function Copy() {
+	local NODE=$1
+	local SRC=$2
+	local DST=$3
+	local OPT=
+	if [ -d $SRC ]; then
+		OPT="-r"
+	fi
+	if [ "$DST" == "" ]; then
+		DST="$SRC"
+	fi
+	if [ "$NODE" == "local" ]; then
+		Info "[CP] $SRC => $DST"
+		cp $OPT $SRC $DST 2>&1
+	else
+		Info "[SCP] $SRC => $NODE:$DST"
+		if [ "$SSH_USER" != "" ]; then
+			scp $_SSH_OPT $OPT $SRC $SSH_USER@$NODE:$DST 2>&1
+		else
+			scp $_SSH_OPT $OPT $SRC $NODE:$DST 2>&1
+		fi
+	fi
+}
+
+function CopyLoc() {
+	Copy "local" "$@"
+}
